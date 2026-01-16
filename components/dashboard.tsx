@@ -1,11 +1,24 @@
 "use client"
 
 import type React from "react"
-import { LogOut } from "lucide-react"
 
 import { useEffect, useState } from "react"
+import { useAuth } from "@/lib/auth-context"
+import {
+  type MonthData,
+  type Transaction,
+  type Category,
+  CATEGORY_LABELS,
+  getOrCreateMonth,
+  subscribeToMonthData,
+  subscribeToTransactions,
+  addTransaction,
+} from "@/lib/budget-service"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -14,54 +27,32 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowLeft,
   Plus,
   Minus,
-  FileText,
-  Loader2,
+  FileDown,
+  LogOut,
+  Wallet,
   ShoppingBag,
-  Utensils,
+  UtensilsCrossed,
   Briefcase,
   Home,
-  Wallet,
+  Loader2,
+  TrendingUp,
+  TrendingDown,
   Receipt,
   Eye,
   EyeOff,
-  TrendingUp,
-  TrendingDown,
-  Trash2,
 } from "lucide-react"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 
-import {
-  type Category,
-  type Transaction,
-  type MonthData,
-  CATEGORY_LABELS,
-  getOrCreateMonth,
-  addTransaction,
-  deleteTransaction,
-  subscribeToMonthData,
-  subscribeToTransactions,
-} from "@/lib/budget-service"
-
-interface DashboardProps {
-  userId: string
-  monthYear: string
-  displayMonth: string
-  onBack: () => void
-}
-
 const CATEGORY_ICONS: Record<Category, React.ReactNode> = {
   general: <Wallet className="w-5 h-5" />,
   shopping: <ShoppingBag className="w-5 h-5" />,
-  outingFood: <Utensils className="w-5 h-5" />,
+  outingFood: <UtensilsCrossed className="w-5 h-5" />,
   office: <Briefcase className="w-5 h-5" />,
   homeAU: <Home className="w-5 h-5" />,
   homeAXIS: <Home className="w-5 h-5" />,
@@ -106,34 +97,45 @@ const CATEGORY_STYLES: Record<Category, { bg: string; icon: string; border: stri
   },
 }
 
-export function Dashboard({ userId, monthYear, displayMonth, onBack }: DashboardProps) {
+interface DashboardProps {
+  monthYear: string
+  displayMonth: string
+  onBack: () => void
+}
+
+export function Dashboard({ monthYear, displayMonth, onBack }: DashboardProps) {
+  const { user, signOut } = useAuth()
   const [monthData, setMonthData] = useState<MonthData | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
-  const [showTransactions, setShowTransactions] = useState(false)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [showTransactions, setShowTransactions] = useState(false)
+  const [formData, setFormData] = useState({
+    category: "general",
+    amount: "",
+    comment: "",
+  })
 
   useEffect(() => {
-    if (!userId) return
+    if (!user) return
 
-    getOrCreateMonth(userId, monthYear).then(() => {
+    getOrCreateMonth(user.uid, monthYear).then(() => {
       setLoading(false)
     })
 
-    const unsubMonth = subscribeToMonthData(userId, monthYear, setMonthData)
-    const unsubTransactions = subscribeToTransactions(userId, monthYear, setTransactions)
+    const unsubMonth = subscribeToMonthData(user.uid, monthYear, setMonthData)
+    const unsubTransactions = subscribeToTransactions(user.uid, monthYear, setTransactions)
 
     return () => {
       unsubMonth()
       unsubTransactions()
     }
-  }, [userId, monthYear])
+  }, [user, monthYear])
 
   const handleAddTransaction = async (category: Category, amount: number, comment: string) => {
-    if (!userId) return
-    await addTransaction(userId, monthYear, {
+    if (!user) return
+    await addTransaction(user.uid, monthYear, {
       category,
       amount,
       type: "add",
@@ -143,8 +145,8 @@ export function Dashboard({ userId, monthYear, displayMonth, onBack }: Dashboard
   }
 
   const handleRemoveTransaction = async (category: Category, amount: number, comment: string) => {
-    if (!userId) return
-    await addTransaction(userId, monthYear, {
+    if (!user) return
+    await addTransaction(user.uid, monthYear, {
       category,
       amount,
       type: "remove",
@@ -327,19 +329,6 @@ export function Dashboard({ userId, monthYear, displayMonth, onBack }: Dashboard
   const totalAdded = transactions.filter((t) => t.type === "add").reduce((sum, t) => sum + t.amount, 0)
   const totalRemoved = transactions.filter((t) => t.type === "remove").reduce((sum, t) => sum + t.amount, 0)
 
-  const handleDeleteTransaction = async (transaction: Transaction) => {
-    if (!transaction.id) return
-
-    setDeletingId(transaction.id)
-    try {
-      await deleteTransaction(userId, monthYear, transaction)
-    } catch (error) {
-      console.error("Failed to delete transaction:", error)
-    } finally {
-      setDeletingId(null)
-    }
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -373,7 +362,7 @@ export function Dashboard({ userId, monthYear, displayMonth, onBack }: Dashboard
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => {}}
+            onClick={signOut}
             className="text-muted-foreground hover:text-foreground hover:bg-secondary"
           >
             <LogOut className="w-5 h-5" />
@@ -461,7 +450,7 @@ export function Dashboard({ userId, monthYear, displayMonth, onBack }: Dashboard
             className="h-14 flex flex-col gap-1 border-border text-foreground bg-card hover:bg-secondary hover:border-primary/40 transition-all"
             onClick={generatePDF}
           >
-            <FileText className="w-5 h-5 text-primary" />
+            <FileDown className="w-5 h-5 text-primary" />
             <span className="text-xs font-medium">Export PDF</span>
           </Button>
         </div>
@@ -566,24 +555,9 @@ export function Dashboard({ userId, monthYear, displayMonth, onBack }: Dashboard
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`font-bold text-lg ${t.type === "add" ? "text-green-400" : "text-red-400"}`}>
-                            {t.type === "add" ? "+" : "-"}Rs. {t.amount.toLocaleString()}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                            onClick={() => handleDeleteTransaction(t)}
-                            disabled={deletingId === t.id}
-                          >
-                            {deletingId === t.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </div>
+                        <span className={`font-bold text-lg ${t.type === "add" ? "text-green-400" : "text-red-400"}`}>
+                          {t.type === "add" ? "+" : "-"}Rs. {t.amount.toLocaleString()}
+                        </span>
                       </CardContent>
                     </Card>
                   ))}

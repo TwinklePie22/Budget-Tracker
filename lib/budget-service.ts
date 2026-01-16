@@ -4,7 +4,6 @@ import {
   getDoc,
   setDoc,
   addDoc,
-  deleteDoc,
   query,
   orderBy,
   onSnapshot,
@@ -133,23 +132,5 @@ export function subscribeToTransactions(
       createdAt: doc.data().createdAt?.toDate() || new Date(),
     })) as Transaction[]
     callback(transactions)
-  })
-}
-
-export async function deleteTransaction(userId: string, monthYear: string, transaction: Transaction): Promise<void> {
-  if (!transaction.id) return
-
-  const monthRef = doc(db, "users", userId, "months", monthYear)
-  const transactionRef = doc(monthRef, "transactions", transaction.id)
-
-  // Delete the transaction document
-  await deleteDoc(transactionRef)
-
-  // Reverse the totals - if it was an "add", we subtract; if it was "remove", we add back
-  const amountChange = transaction.type === "add" ? -transaction.amount : transaction.amount
-
-  await updateDoc(monthRef, {
-    totalSpent: increment(amountChange),
-    [`categories.${transaction.category}`]: increment(amountChange),
   })
 }
