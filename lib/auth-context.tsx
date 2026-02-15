@@ -8,7 +8,6 @@ import {
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth"
-import { auth } from "./firebase"
 
 interface AuthContextType {
   user: User | null
@@ -23,24 +22,34 @@ const AuthContext = createContext<AuthContextType | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [auth, setAuth] = useState<any>(null)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user)
-      setLoading(false)
+    // Dynamically import Firebase to ensure environment variables are available
+    import("./firebase").then(({ auth: firebaseAuth }) => {
+      setAuth(firebaseAuth)
+      
+      const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+        setUser(user)
+        setLoading(false)
+      })
+      
+      return () => unsubscribe()
     })
-    return unsubscribe
   }, [])
 
   const signIn = async (email: string, password: string) => {
+    if (!auth) throw new Error("Firebase not initialized")
     await signInWithEmailAndPassword(auth, email, password)
   }
 
   const signUp = async (email: string, password: string) => {
+    if (!auth) throw new Error("Firebase not initialized")
     await createUserWithEmailAndPassword(auth, email, password)
   }
 
   const signOut = async () => {
+    if (!auth) throw new Error("Firebase not initialized")
     await firebaseSignOut(auth)
   }
 
