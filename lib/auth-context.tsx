@@ -27,6 +27,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Dynamically import Firebase to ensure environment variables are available
     import("./firebase").then(({ auth: firebaseAuth }) => {
+      if (!firebaseAuth) {
+        console.error("Firebase auth not initialized - check your environment variables")
+        setLoading(false)
+        return
+      }
+
       setAuth(firebaseAuth)
       
       const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
@@ -35,6 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       
       return () => unsubscribe()
+    }).catch((error) => {
+      console.error("Failed to load Firebase:", error)
+      setLoading(false)
     })
   }, [])
 
