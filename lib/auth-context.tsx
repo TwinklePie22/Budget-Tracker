@@ -8,7 +8,7 @@ import {
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth"
-import { auth } from "./firebase"
+import { initializeFirebase } from "./firebase"
 
 interface AuthContextType {
   user: User | null
@@ -18,33 +18,132 @@ interface AuthContextType {
   signOut: () => Promise<void>
 }
 
+interface FallbackUser extends User {
+  uid: string
+  email: string
+  displayName?: string
+  emailVerified: boolean
+}
+
 const AuthContext = createContext<AuthContextType | null>(null)
+
+// Fallback auth for when Firebase is not configured
+function useFallbackAuth() {
+  const [user, setUser] = useState<FallbackUser | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    // Check if user is stored in session storage (fallback)
+    const storedUser = sessionStorage.getItem("fallback_user")
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser))
+      } catch {
+        setUser(null)
+      }
+    }
+    setLoading(false)
+  }, [])
+
+  const signIn = async (email: string, password: string) => {
+    // Fallback auth - simple demo auth
+    const user: FallbackUser = {
+      uid: `user_${Date.now()}`,
+      email,
+      displayName: email.split("@")[0],
+      emailVerified: false,
+      metadata: {},
+      isAnonymous: false,
+      providerData: [],
+      reload: async () => {},
+      getIdToken: async () => "token",
+      getIdTokenResult: async () => ({ token: "token", claims: {}, signInProvider: null, signInTime: new Date().toISOString(), issuedAtTime: new Date().toISOString(), expirationTime: new Date().toISOString() }),
+      toJSON: () => ({}),
+      delete: async () => {},
+      phoneNumber: null,
+      photoURL: null,
+    }
+    sessionStorage.setItem("fallback_user", JSON.stringify(user))
+    setUser(user)
+  }
+
+  const signUp = async (email: string, password: string) => {
+    await signIn(email, password)
+  }
+
+  const signOut = async () => {
+    sessionStorage.removeItem("fallback_user")
+    setUser(null)
+  }
+
+  return { user, loading, signIn, signUp, signOut }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [auth, setAuth] = useState<any>(null)
+  const [useFirebase, setUseFirebase] = useState(true)
+  const fallbackAuth = useFallbackAuth()
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user)
+    try {
+      const { auth: firebaseAuth } = initializeFirebase()
+      
+      if (!firebaseAuth) {
+        console.warn("Firebase not configured. Using fallback authentication.")
+        setUseFirebase(false)
+        setLoading(false)
+        return
+      }
+
+      setUseFirebase(true)
+      setAuth(firebaseAuth)
+      
+      const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+        setUser(user)
+        setLoading(false)
+      })
+      
+      return () => unsubscribe()
+    } catch (err) {
+      console.warn("Firebase initialization failed. Using fallback authentication.", err)
+      setUseFirebase(false)
       setLoading(false)
-    })
-    return unsubscribe
+    }
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password)
+    if (useFirebase && auth) {
+      await signInWithEmailAndPassword(auth, email, password)
+    } else {
+      await fallbackAuth.signIn(email, password)
+      setUser(fallbackAuth.user)
+    }
   }
 
   const signUp = async (email: string, password: string) => {
-    await createUserWithEmailAndPassword(auth, email, password)
+    if (useFirebase && auth) {
+      await createUserWithEmailAndPassword(auth, email, password)
+    } else {
+      await fallbackAuth.signUp(email, password)
+      setUser(fallbackAuth.user)
+    }
   }
 
   const signOut = async () => {
-    await firebaseSignOut(auth)
+    if (useFirebase && auth) {
+      await firebaseSignOut(auth)
+    } else {
+      await fallbackAuth.signOut()
+      setUser(null)
+    }
   }
 
-  return <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>{children}</AuthContext.Provider>
+  const currentUser = useFirebase ? user : fallbackAuth.user
+  const currentLoading = useFirebase ? loading : fallbackAuth.loading
+
+  return <AuthContext.Provider value={{ user: currentUser, loading: currentLoading, signIn, signUp, signOut }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

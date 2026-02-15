@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from "firebase/app"
-import { getAuth } from "firebase/auth"
+import { getAuth, initializeAuth, connectAuthEmulator } from "firebase/auth"
 import { getFirestore } from "firebase/firestore"
 
 const firebaseConfig = {
@@ -11,7 +11,24 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 }
 
-// Singleton pattern to prevent multiple Firebase instances
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
-export const auth = getAuth(app)
-export const db = getFirestore(app)
+// Lazy initialization - only called when actually needed
+let auth: any = null
+let db: any = null
+let initialized = false
+
+export function initializeFirebase() {
+  if (initialized) return { auth, db }
+  
+  try {
+    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
+    auth = getAuth(app)
+    db = getFirestore(app)
+    initialized = true
+    return { auth, db }
+  } catch (error) {
+    console.error("Failed to initialize Firebase:", error)
+    return { auth: null, db: null }
+  }
+}
+
+export { auth, db }
